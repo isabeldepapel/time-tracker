@@ -1,72 +1,57 @@
 import os
-import uuid
-from datetime import datetime, timezone
+import sys
 from notion.client import NotionClient
 
 TOKEN = os.getenv('TOKEN_V2')
 URL = os.getenv('URL')
-OPS = ['bh', 'deploy']
-ENVS = ['integration', 'us', 'emea']
+
+def generate_var_prefix(op, env):
+    '''Environment variable names are of the type <env>_<op>_<kind>. Generates
+    the first part of the name using the given op and env.'''
+    return f'{env.upper()}_{op.upper()}'
+
+def get_timestamp_in_milliseconds(microseconds_as_string):
+    return int(microseconds_as_string) / 1000
 
 def get_table_view():
     client = NotionClient(token_v2=TOKEN)
     table_view = client.get_collection_view(URL)
     return table_view
 
-def get_table(table_view=None):
-    if not table_view:
-        table_view = get_table_view()
-    return table_view.collection
+def write_data(op, env, num_builds=None):
+    '''Write data to table. Table is set up as name (env), op, start_ms, end_ms'''
+    var_prefix = generate_var_prefix(op, env)
+    start_env_var = f'{var_prefix}_START'
+    end_env_var = f'{var_prefix}_END'
 
-def record_start(op, env='integration'):
-    formatted_op = op.lower()
-    formatted_env = env.lower()
+    start_time_in_microseconds = os.getenv(f'{var_prefix}_START')
+    end_time_in_microseconds = os.getenv(f'{var_prefix}_END')
 
-    if formatted_op not in OPS or formatted_env not in ENVS:
-        print('invalid input')
+    try:
+        start_time = get_timestamp_in_milliseconds(start_time_in_microseconds)
+        end_time = get_timestamp_in_milliseconds(end_time_in_microseconds)
+
+    except TypeError:
+        print(
+            'Missing required env var, aborting',
+            f'start: {start_time_in_microseconds}',
+            f'end: {end_time_in_microseconds}',
+            sep='\n'
+        )
         return
 
-    start_time = datetime.now(timezone.utc)
-    row_id = str(uuid.uuid4())
+    else:
+        print('Writing data')
+        table_view = get_table_view()
+        row = table_view.collection.add_row()
+        row.name = env.lower()
+        row.op = op.lower()
+        row.start_ms = start_time
+        row.end_ms = end_time
+        if num_builds:
+            row.num_builds = int(num_builds)
+        return
 
-    table_view = get_table_view()
-    # table is set up as id, env, op, start, end, (# builds?)
-    row = table_view.collection.add_row()
-    row.name = row_id
-    row.env = formatted_env
-    row.op = formatted_op
-    row.start = start_time
-
-    print(start_time)
-    return row_id
-
-def get_record(row_id):
-    print(row_id)
-    end_time = datetime.now(timezone.utc)
-    table_view = get_table_view()
-
-    filter_params = [{
-        "property": "title",
-        "comparator": "enum_is",
-        "value": row_id
-    }]
-    print(filter_params)
-
-    other_params = [{
-        "property": "env",
-        "comparator": "contains",
-        "value": "emea"
-    }]
-
-    result = table_view.build_query(filter=other_params).execute()
-    print(result)
-    # for row in result:
-    #     print('updating')
-    #     print(row.name)
-        # row.end = end_time
-
-    return
-
-# print(record_start('bh'))
-TEST_UUID='24092952-4a77-42e2-a7c8-738bdf5864ca'
-get_record(TEST_UUID)
+if __name__ == '__main__':
+    op, env, num_builds = sys.argv[1:]
+    write_data(op, env, num_builds)

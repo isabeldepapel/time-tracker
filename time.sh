@@ -69,8 +69,21 @@ start_time() {
 end_time() {
     local op="$1"
     local env="$2"
+    local num_builds="$3"
 
     export_datetime "$op" "$env" "end"
+    write_to_notion "$op" "$env" "$num_builds"
+}
+
+write_to_notion() {
+    local op="$1"
+    local env="$2"
+    local num_builds="$3"
+
+    local start_var_name=$(generate_var_name "$env" "$op" "start")
+    local end_var_name=$(generate_var_name "$env" "$op" "end")
+
+    python time.py "$op" "$env" "$num_builds"
 }
 
 main() {
@@ -83,6 +96,10 @@ main() {
         "end")
             shift
             end_time "$@"
+            ;;
+        "write-data")
+            shift
+            write_to_notion "$@"
             ;;
         *)
             exit 1
